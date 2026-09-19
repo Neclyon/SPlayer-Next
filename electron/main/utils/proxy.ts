@@ -3,6 +3,7 @@ import { store } from "@main/store";
 import { systemLog } from "@main/utils/logger";
 import { fetch as undiciFetch, Agent, ProxyAgent, Socks5ProxyAgent } from "undici";
 import type { Dispatcher } from "undici";
+import crypto from "node:crypto";
 
 const PROXY_TEST_URL = "https://www.baidu.com";
 const defaultDnsResultOrder = getDefaultResultOrder();
@@ -10,7 +11,7 @@ const defaultDnsResultOrder = getDefaultResultOrder();
 let proxyAgent: Dispatcher | null = null;
 let proxyAgentUrl = "";
 let ipv4Agent: Agent | null = null;
-let directAgent: Agent | null = null;
+let defaultDispatcher: Dispatcher | null = null;
 
 const isManualProxyProtocol = (value: string): value is "http" | "https" | "socks5" =>
   value === "http" || value === "https" || value === "socks5";
@@ -20,6 +21,19 @@ export const applyIPv4Preference = (): void => {
   const order = store.get("system.preferIPv4") ? "ipv4first" : defaultDnsResultOrder;
   setDefaultResultOrder(order);
   systemLog.info(`[network] DNS address order=${order}`);
+};
+
+/** 默认直连 dispatcher（允许 legacy renegotiation） */
+const getDefaultDispatcher = (): Dispatcher => {
+  if (!defaultDispatcher) {
+    defaultDispatcher = new Agent({
+      connect: {
+        autoSelectFamily: true,
+        secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+      },
+    });
+  }
+  return defaultDispatcher;
 };
 
 /** 当前手动代理地址；off 或配置无效时返回 null，保持原生直连行为 */
@@ -46,14 +60,14 @@ const getProxyDispatcher = (): Dispatcher | undefined => {
 
 /** 丢弃旧连接池，显式选择应用代理或直连，避免全局 fetch 继承环境代理。 */
 export const resetNetworkDispatchers = (): Dispatcher => {
-  for (const agent of [proxyAgent, directAgent, ipv4Agent]) {
+  for (const agent of [proxyAgent, defaultDispatcher, ipv4Agent]) {
     void agent?.destroy().catch(() => {});
   }
   proxyAgent = null;
   proxyAgentUrl = "";
   ipv4Agent = null;
-  directAgent = null;
-  return getProxyDispatcher() ?? (directAgent = new Agent({ connect: { autoSelectFamily: true } }));
+  defaultDispatcher = null;
+  return getProxyDispatcher() ?? getDefaultDispatcher();
 };
 
 /**
@@ -71,9 +85,15 @@ export const fetchWithProxy = (
   let dispatcher = getProxyDispatcher();
   if (!dispatcher && ipv4Only) {
     // 复用连接池；Undici 在空闲连接断开后移除对应域名的池。
-    dispatcher = ipv4Agent ??= new Agent({ connect: { family: 4, autoSelectFamily: false } });
+    dispatcher = ipv4Agent ??= new Agent({
+      connect: {
+        family: 4,
+        autoSelectFamily: false,
+        secureOptions: crypto.constants.SSL_OP_LEGACY_SERVER_CONNECT,
+      },
+    });
   }
-  if (!dispatcher) return fetch(input, init);
+  dispatcher ??= getDefaultDispatcher();
   return undiciFetch(input, { ...(init as RequestInit), dispatcher } as Parameters<
     typeof undiciFetch
   >[1]) as unknown as Promise<Response>;

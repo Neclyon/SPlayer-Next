@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { constants } from "node:crypto";
 import { getDefaultResultOrder, setDefaultResultOrder } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { registerHooks } from "node:module";
@@ -21,6 +22,7 @@ const hooks = registerHooks({
         export class Agent {
           constructor(options) { this.options = options; }
           close() { return Promise.resolve(); }
+          destroy() { this.destroyed = true; return Promise.resolve(); }
         }
         export class ProxyAgent extends Agent {}
         export class Socks5ProxyAgent extends Agent {}
@@ -36,9 +38,8 @@ const hooks = registerHooks({
     return nextResolve(specifier, context);
   },
 });
-const { applyIPv4Preference, fetchWithProxy } = await import("./proxy").finally(() =>
-  hooks.deregister(),
-);
+const { applyIPv4Preference, fetchWithProxy, resetNetworkDispatchers } =
+  await import("./proxy").finally(() => hooks.deregister());
 const { config } = (await import(configModule)) as {
   config: { protocol: string; host: string; port: number; preferIPv4: boolean };
 };
@@ -47,6 +48,7 @@ describe("IPv4 连接偏好与重试回退", () => {
   beforeEach(() => {
     config.protocol = "off";
     config.preferIPv4 = false;
+    resetNetworkDispatchers();
   });
 
   afterEach(() => {
@@ -72,7 +74,7 @@ describe("IPv4 连接偏好与重试回退", () => {
     assert.equal(getDefaultResultOrder(), defaultDnsResultOrder);
   });
 
-  it("IPv4 优先不会强制原生请求使用只支持 IPv4 的调度器", async (t) => {
+  it("IPv4 优先仍允许双栈建连并保留 TLS 兼容选项", async (t) => {
     config.preferIPv4 = true;
     applyIPv4Preference();
     const fetchMock = t.mock.method(globalThis, "fetch", async () => Response.json({ code: 200 }));
@@ -80,16 +82,36 @@ describe("IPv4 连接偏好与重试回退", () => {
 
     await fetchWithProxy("https://music.163.com/api/test", options);
 
-    assert.equal(fetchMock.mock.calls[0].arguments[1], options);
+    const { dispatcher, ...requestOptions } = fetchMock.mock.calls[0]
+      .arguments[1] as RequestInit & {
+      dispatcher: { options: unknown };
+    };
+    assert.deepEqual(requestOptions, options);
+    assert.deepEqual(dispatcher.options, {
+      connect: {
+        autoSelectFamily: true,
+        secureOptions: constants.SSL_OP_LEGACY_SERVER_CONNECT,
+      },
+    });
   });
 
-  it("初次直连保留原生 fetch 行为", async (t) => {
+  it("普通直连复用支持 TLS 兼容选项的默认调度器", async (t) => {
     const fetchMock = t.mock.method(globalThis, "fetch", async () => Response.json({ code: 200 }));
     const options = { method: "POST", body: "test=1" };
 
     await fetchWithProxy("https://music.163.com/api/test", options);
+    await fetchWithProxy("https://interfacepc.music.163.com/api/test", options);
 
-    assert.equal(fetchMock.mock.calls[0].arguments[1], options);
+    const requests = fetchMock.mock.calls.map(
+      (call) => call.arguments[1] as RequestInit & { dispatcher: { options: unknown } },
+    );
+    assert.equal(requests[0].dispatcher, requests[1].dispatcher);
+    assert.deepEqual(requests[0].dispatcher.options, {
+      connect: {
+        autoSelectFamily: true,
+        secureOptions: constants.SSL_OP_LEGACY_SERVER_CONNECT,
+      },
+    });
   });
 
   it("直连失败后的重试强制 IPv4，并复用同一个调度器", async (t) => {
@@ -102,9 +124,32 @@ describe("IPv4 连接偏好与重试回退", () => {
       (call) => call.arguments[1] as RequestInit & { dispatcher: { options: unknown } },
     );
     assert.deepEqual(options[0].dispatcher.options, {
-      connect: { family: 4, autoSelectFamily: false },
+      connect: {
+        family: 4,
+        autoSelectFamily: false,
+        secureOptions: constants.SSL_OP_LEGACY_SERVER_CONNECT,
+      },
     });
     assert.equal(options[0].dispatcher, options[1].dispatcher);
+  });
+
+  it("切换网络配置后销毁旧连接池并使用新的默认调度器", async (t) => {
+    const fetchMock = t.mock.method(globalThis, "fetch", async () => Response.json({ code: 200 }));
+    await fetchWithProxy("https://music.163.com/api/test");
+    await fetchWithProxy("https://music.163.com/api/test", undefined, true);
+
+    const oldDispatchers = fetchMock.mock.calls.map(
+      (call) =>
+        (call.arguments[1] as RequestInit & { dispatcher: { destroyed?: boolean } }).dispatcher,
+    );
+    const dispatcher = resetNetworkDispatchers();
+    assert.ok(oldDispatchers.every((old) => old.destroyed && old !== dispatcher));
+
+    await fetchWithProxy("https://music.163.com/api/test");
+    assert.equal(
+      (fetchMock.mock.calls[2].arguments[1] as RequestInit & { dispatcher: unknown }).dispatcher,
+      dispatcher,
+    );
   });
 
   for (const protocol of ["http", "https", "socks5"]) {

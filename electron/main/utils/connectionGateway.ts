@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { lookup } from "node:dns";
 import http, { type IncomingMessage } from "node:http";
 import https from "node:https";
-import { connect, type Socket } from "node:net";
+import { connect, type Socket, type TcpNetConnectOpts } from "node:net";
 import type { Duplex } from "node:stream";
 import { SocksClient } from "socks";
 
@@ -86,14 +86,17 @@ export class ConnectionGateway {
           }
           proxy.username = "";
           proxy.password = "";
-          upstream = (proxy.protocol === "https:" ? https : http).request(proxy, {
-            method: request.method,
-            path: url.href,
-            headers,
-            agent: false,
-            lookup: this.options.lookup ?? lookup,
-            autoSelectFamily: true,
-          });
+          // HTTP 会透传 TCP 连接选项，但 Node 的 HTTP 类型尚未声明地址族选项。
+          const requestOptions: http.RequestOptions & Pick<TcpNetConnectOpts, "autoSelectFamily"> =
+            {
+              method: request.method,
+              path: url.href,
+              headers,
+              agent: false,
+              lookup: this.options.lookup ?? lookup,
+              autoSelectFamily: true,
+            };
+          upstream = (proxy.protocol === "https:" ? https : http).request(proxy, requestOptions);
           upstream.on("socket", (socket) => {
             this.sockets.add(socket);
             socket.once("close", () => this.sockets.delete(socket));

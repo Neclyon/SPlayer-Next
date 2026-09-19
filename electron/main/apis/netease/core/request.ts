@@ -22,6 +22,7 @@ import { cookieObjToString, cookieToJson } from "./cookie";
 import * as encrypt from "./crypto";
 import { getAnonymousToken, getDeviceId } from "./device";
 import { ensureXeapiKey, getXeapiSession, updateXeapiSession } from "./xeapi";
+import { getAntiCheatTokenV3 } from "./checktoken";
 import { fetchWithProxy } from "@main/utils/proxy";
 import { neteaseLog } from "@main/utils/logger";
 
@@ -40,8 +41,8 @@ export interface RequestOptions {
   ip?: string;
   /** 是否让服务端加密响应体（仅 weapi/eapi 有效） */
   e_r?: boolean;
-  /** 强制附加 anti-cheat token（暂未启用） */
-  checkToken?: boolean;
+  /** 强制附加 anti-cheat token（如 "v3"） */
+  checkToken?: string | boolean;
 }
 
 /** 响应统一结构 */
@@ -183,6 +184,11 @@ export const createRequest = async (
   );
   data.e_r = useER;
 
+  let antiCheatToken = "";
+  if (options.checkToken) {
+    antiCheatToken = await getAntiCheatTokenV3();
+  }
+
   let url = "";
   let encryptData: Record<string, string | number | boolean> | typeof data;
 
@@ -190,7 +196,10 @@ export const createRequest = async (
     case "weapi": {
       headers["Referer"] = options.domain || DOMAIN;
       headers["User-Agent"] = options.ua || chooseUserAgent("weapi");
-      data.csrf_token = csrfToken;
+      (data as Record<string, unknown>).csrf_token = csrfToken;
+      if (options.checkToken && antiCheatToken) {
+        headers["X-antiCheatToken"] = antiCheatToken;
+      }
       encryptData = encrypt.weapi(data);
       url = (options.domain || DOMAIN) + "/weapi/" + uri.slice(5);
       break;
@@ -221,6 +230,9 @@ export const createRequest = async (
       headers["x-sdeviceid"] = cookie.sDeviceId || cookie.deviceId;
       headers["x-buildver"] = xeapiBuildver;
       if (cookie.MUSIC_U) headers["x-music-u"] = cookie.MUSIC_U;
+      if (options.checkToken && antiCheatToken) {
+        headers["X-antiCheatToken"] = antiCheatToken;
+      }
       headers["Cookie"] = cookieObjToString({
         ...cookie,
         os: xeapiOs,
@@ -235,7 +247,10 @@ export const createRequest = async (
         publicKeyState,
         sessionId: session.sessionId,
         sessionKey: session.sessionKey,
+        appver: xeapiAppver,
+        deviceId: cookie.deviceId,
         os: xeapiOs,
+        uid: cookie.uid || cookie.userId || "",
       });
       break;
     }
@@ -257,6 +272,10 @@ export const createRequest = async (
       if (cookie.MUSIC_U) header.MUSIC_U = cookie.MUSIC_U;
       if (cookie.MUSIC_A) header.MUSIC_A = cookie.MUSIC_A;
       if (crypto === "eapi" && cookie.NMTID) header.NMTID = cookie.NMTID;
+      if (options.checkToken && antiCheatToken) {
+        header["X-antiCheatToken"] = antiCheatToken;
+        headers["X-antiCheatToken"] = antiCheatToken;
+      }
       headers["Cookie"] = cookieObjToString(header);
       headers["User-Agent"] =
         options.ua || (cookie.os === "osx" ? OSX_USER_AGENT : chooseUserAgent("api", "iphone"));
