@@ -24,3 +24,6 @@ minimumReleaseAgeExclude:
 
 overrides:
   node-abi: ^4.33.0
+
+patchedDependencies:
+  lyric-dom@0.1.2: patches/lyric-dom@0.1.2.patch

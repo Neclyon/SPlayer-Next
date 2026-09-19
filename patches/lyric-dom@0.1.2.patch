@@ -1,0 +1,23 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 7a9b14f2e44b68396740f2747837ffdb3a699037..d5c0841ec908b48e299c4207f5a6008d246658eb 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -364,7 +364,8 @@ const chunkAndSplitLyricWords = (words) => {
+ 		}
+ 	}
+ 	if (!hasSegmenter) return atoms;
+-	const fullText = atoms.map((a) => a.word).join("");
++	// 分词文本与原子偏移都计入词尾空格，避免强调效果跨单词合并。
++	const fullText = atoms.map((a) => a.word + (a.endsWithSpace ? " " : "")).join("");
+ 	wordSegmenter ??= new Intl.Segmenter(void 0, { granularity: "word" });
+ 	const segments = wordSegmenter.segment(fullText);
+ 	const result = [];
+@@ -377,7 +378,7 @@ const chunkAndSplitLyricWords = (words) => {
+ 		while (actual < expected && atomIdx < atoms.length) {
+ 			const atom = atoms[atomIdx++];
+ 			group.push(atom);
+-			actual += atom.word.length;
++			actual += atom.word.length + (atom.endsWithSpace ? 1 : 0);
+ 		}
+ 		if (actual === expected) {
+ 			while (group.length > 1 && !group[0].word.trim()) {

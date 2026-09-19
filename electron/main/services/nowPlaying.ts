@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Track, PlayerState } from "@shared/types/player";
 import type { LyricLine, LyricData } from "@shared/types/lyrics";
+import { getWordText, getWordRomaji } from "@shared/utils/lyrics";
 import type {
   NowPlayingSnapshot,
   NowPlayingPositionSync,
@@ -206,10 +207,20 @@ export const lightSnapshot = () => ({
   sendTimestamp: lastPositionAt || Date.now(),
 });
 
-/** 获取当前曲目的完整歌词快照 */
+/** 获取供外部 API 使用的完整歌词快照，词尾空格还原到文本中 */
 export const lyricSnapshot = () => ({
   trackId: currentTrack?.id ?? null,
-  lyric: currentLyric,
+  lyric: currentLyric.map((line) => ({
+    ...line,
+    words: line.words.map((word) => {
+      if (!word.endsWithSpace) return word;
+      // 外部客户端直接拼接 word；还原后移除标记，避免再次补空格。
+      const { endsWithSpace: _endsWithSpace, ...textWord } = word;
+      textWord.word = getWordText(word);
+      if (word.romanWord) textWord.romanWord = getWordRomaji(word);
+      return textWord;
+    }),
+  })),
   source: currentSource,
   lyricOffsetMs: currentLyricOffsetMs,
 });

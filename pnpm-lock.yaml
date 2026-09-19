@@ -7,6 +7,9 @@ settings:
 overrides:
   node-abi: ^4.33.0
 
+patchedDependencies:
+  lyric-dom@0.1.2: d4b346a3c2912feebe284897ee5aa465211f09d2588b44736374db847c7af940
+
 importers:
 
   .:
@@ -44,6 +47,9 @@ importers:
       lyric-kit:
         specifier: ^0.5.4
         version: 0.5.4
+      socks:
+        specifier: ^2.8.10
+        version: 2.8.10
       undici:
         specifier: ^8.10.0
         version: 8.10.0
@@ -158,7 +164,7 @@ importers:
         version: 1.10.0
       lyric-dom:
         specifier: ^0.1.2
-        version: 0.1.2
+        version: 0.1.2(patch_hash=d4b346a3c2912feebe284897ee5aa465211f09d2588b44736374db847c7af940)
       marked:
         specifier: ^18.0.9
         version: 18.0.9
@@ -4641,6 +4647,14 @@ packages:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
     engines: {node: '>=18'}
 
+  smart-buffer@4.2.0:
+    resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
+    engines: {node: '>= 6.0.0', npm: '>= 3.0.0'}
+
+  socks@2.8.10:
+    resolution: {integrity: sha512-e0VyvkVTwVYViNovRkZ9aodhxVlyoMn7eJhVUPxZ+eK9P/7CBkxvvsBOHqFPEH416726W8tLXXXjKwqgTErrCQ==}
+    engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
+
   sortablejs@1.15.7:
     resolution: {integrity: sha512-Kk8wLQPlS+yi1ZEf48a4+fzHa4yxjC30M/Sr2AnQu+f/MPwvvX9XjZ6OWejiz8crBsLwSq8GHqaxaET7u6ux0A==}
 
@@ -8955,7 +8969,7 @@ snapshots:
     dependencies:
       yallist: 4.0.0
 
-  lyric-dom@0.1.2: {}
+  lyric-dom@0.1.2(patch_hash=d4b346a3c2912feebe284897ee5aa465211f09d2588b44736374db847c7af940): {}
 
   lyric-kit@0.5.4: {}
 
@@ -9777,6 +9791,13 @@ snapshots:
       '@polka/url': 1.0.0-next.29
       mrmime: 2.0.1
       totalist: 3.0.1
+
+  smart-buffer@4.2.0: {}
+
+  socks@2.8.10:
+    dependencies:
+      ip-address: 10.4.0
+      smart-buffer: 4.2.0
 
   sortablejs@1.15.7: {}
 

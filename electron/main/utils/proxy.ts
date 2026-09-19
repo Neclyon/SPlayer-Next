@@ -1,15 +1,26 @@
+import { getDefaultResultOrder, setDefaultResultOrder } from "node:dns";
 import { store } from "@main/store";
 import { systemLog } from "@main/utils/logger";
-import { fetch as undiciFetch, ProxyAgent, Socks5ProxyAgent } from "undici";
+import { fetch as undiciFetch, Agent, ProxyAgent, Socks5ProxyAgent } from "undici";
 import type { Dispatcher } from "undici";
 
 const PROXY_TEST_URL = "https://www.baidu.com";
+const defaultDnsResultOrder = getDefaultResultOrder();
 
 let proxyAgent: Dispatcher | null = null;
 let proxyAgentUrl = "";
+let ipv4Agent: Agent | null = null;
+let directAgent: Agent | null = null;
 
 const isManualProxyProtocol = (value: string): value is "http" | "https" | "socks5" =>
   value === "http" || value === "https" || value === "socks5";
+
+/** 应用新建连接的地址族优先级，关闭时恢复进程启动时的解析顺序 */
+export const applyIPv4Preference = (): void => {
+  const order = store.get("system.preferIPv4") ? "ipv4first" : defaultDnsResultOrder;
+  setDefaultResultOrder(order);
+  systemLog.info(`[network] DNS address order=${order}`);
+};
 
 /** 当前手动代理地址；off 或配置无效时返回 null，保持原生直连行为 */
 export const getNetworkProxyUrl = (): string | null => {
@@ -33,9 +44,35 @@ const getProxyDispatcher = (): Dispatcher | undefined => {
   return proxyAgent;
 };
 
-/** Node fetch 包装：关闭代理时完全等价于原生 fetch，开启代理时才注入 dispatcher */
-export const fetchWithProxy = (input: string | URL, init?: RequestInit): Promise<Response> => {
-  const dispatcher = getProxyDispatcher();
+/** 丢弃旧连接池，显式选择应用代理或直连，避免全局 fetch 继承环境代理。 */
+export const resetNetworkDispatchers = (): Dispatcher => {
+  for (const agent of [proxyAgent, directAgent, ipv4Agent]) {
+    void agent?.destroy().catch(() => {});
+  }
+  proxyAgent = null;
+  proxyAgentUrl = "";
+  ipv4Agent = null;
+  directAgent = null;
+  return getProxyDispatcher() ?? (directAgent = new Agent({ connect: { autoSelectFamily: true } }));
+};
+
+/**
+ * 按应用配置发送请求，直连重试时可回退到 IPv4
+ * @param input - 请求地址
+ * @param init - 请求选项
+ * @param ipv4Only - 仅在没有手动代理时使用 IPv4，不改变代理服务器的解析策略
+ * @returns HTTP 响应
+ */
+export const fetchWithProxy = (
+  input: string | URL,
+  init?: RequestInit,
+  ipv4Only = false,
+): Promise<Response> => {
+  let dispatcher = getProxyDispatcher();
+  if (!dispatcher && ipv4Only) {
+    // 复用连接池；Undici 在空闲连接断开后移除对应域名的池。
+    dispatcher = ipv4Agent ??= new Agent({ connect: { family: 4, autoSelectFamily: false } });
+  }
   if (!dispatcher) return fetch(input, init);
   return undiciFetch(input, { ...(init as RequestInit), dispatcher } as Parameters<
     typeof undiciFetch

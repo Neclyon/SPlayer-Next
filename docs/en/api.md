@@ -96,6 +96,8 @@ GET /api/lyrics
 
 Returns parsed lyrics, source information, and offset. `lyric` is a structured JSON array, avoiding double-encoded JSON strings.
 
+Both HTTP lyric responses and WebSocket `lyric` events include spaces directly in `word` (and existing `romanWord`) text, removing the corresponding `endsWithSpace` flag after conversion. Clients can use `line.words.map((word) => word.word).join("")` to obtain the full line with spaces preserved.
+
 ## Playback control
 
 The following endpoints take no body and return `{ "ok": true }`:

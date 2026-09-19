@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { broadcast } from "@main/utils/broadcast";
-import { wsBroadcast } from "@main/server/broadcast";
+import { getWsClientCount, wsBroadcast } from "@main/server/broadcast";
 import * as nowPlaying from "@main/services/nowPlaying";
 import type { NowPlayingUpdatePayload } from "@shared/types/nowPlaying";
 
@@ -26,7 +26,10 @@ export const registerNowPlayingIpc = (): void => {
   });
   nowPlaying.onLyricChange((snap) => {
     broadcast("nowPlaying:lyric-change", snap);
-    wsBroadcast({ type: "lyric", data: { source: snap.source, lyric: snap.lyric } });
+    if (getWsClientCount() > 0) {
+      const { source, lyric } = nowPlaying.lyricSnapshot();
+      wsBroadcast({ type: "lyric", data: { source, lyric } });
+    }
   });
   nowPlaying.onPositionSync((data) => broadcast("nowPlaying:position-sync", data, true));
   nowPlaying.onLyricOffsetChange((data) => {

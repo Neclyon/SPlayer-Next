@@ -106,6 +106,10 @@ GET /api/lyrics
 返回当前曲目的完整解析歌词、歌词来源和偏移。`lyric` 保持结构化 JSON 数组，避免将
 JSON 再编码成字符串所产生的双重转义和额外解析；服务在网络传输时会输出紧凑 JSON。
 
+HTTP 歌词响应和 WebSocket 的 `lyric` 事件均将词间空格还原到 `word`（及已有的
+`romanWord`）文本中，不再附带已还原的 `endsWithSpace` 标记。客户端可直接使用
+`line.words.map((word) => word.word).join("")` 获取包含空格的整行歌词。
+
 ## 播放控制
 
 ### 播放
